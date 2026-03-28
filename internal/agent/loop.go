@@ -94,8 +94,17 @@ func Run(ctx context.Context, opts Options) error {
 		// If no tool calls, we're done
 		if len(allToolCalls) == 0 {
 			if fullContent == "" {
-				opts.OnEvent(Event{Type: EventError, Content: "the model returned an empty response with no content and no tool calls"})
-				return fmt.Errorf("the model returned an empty response with no content and no tool calls")
+				// Retry once on the next iteration before giving up.
+				// This handles transient empty responses from the streaming API (e.g. the
+				// non-streaming fallback in ChatCompletionStream also returned nothing).
+				// Only the very first empty response triggers a retry; on the second empty
+				// response we surface the error so we don't loop indefinitely.
+				if iteration == 0 {
+					continue
+				}
+				errMsg := fmt.Sprintf("the model (%s) returned an empty response with no content and no tool calls", opts.Model)
+				opts.OnEvent(Event{Type: EventError, Content: errMsg})
+				return fmt.Errorf("%s", errMsg)
 			}
 			opts.OnEvent(Event{Type: EventDone})
 			return nil

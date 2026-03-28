@@ -117,12 +117,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.output.WriteString(evt.Content)
 
 		case agent.EventToolCall:
-			step := fmt.Sprintf("🔧 %s", evt.ToolName)
-			if path, ok := evt.ToolParams["path"]; ok {
-				step += fmt.Sprintf(" → %v", path)
-			} else if cmd, ok := evt.ToolParams["command"]; ok {
-				step += fmt.Sprintf(" → %v", cmd)
-			}
+			step := FormatToolCall(evt.ToolName, evt.ToolParams)
 			m.toolSteps = append(m.toolSteps, step)
 			m.spinner = NewSpinner(fmt.Sprintf("Running %s...", evt.ToolName))
 

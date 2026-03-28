@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -80,6 +81,15 @@ func Run(ctx context.Context, opts Options) error {
 		})
 
 		if err != nil {
+			// If the API rejected the request because the model generated malformed
+			// tool call JSON, add a message asking the model to retry rather than
+			// crashing immediately.
+			var apiErr *api.APIError
+			if errors.As(err, &apiErr) && apiErr.Code == "tool_use_failed" {
+				opts.Conversation.AddAssistantMessage("I encountered an error with my tool call. Let me try again.", nil)
+				opts.OnEvent(Event{Type: EventError, Content: "Tool call had invalid JSON, asking model to retry..."})
+				continue
+			}
 			opts.OnEvent(Event{Type: EventError, Content: err.Error()})
 			return err
 		}

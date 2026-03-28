@@ -1,6 +1,9 @@
 package api
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // Request types
 
@@ -85,7 +88,26 @@ type StreamChunk struct {
 	Usage   *Usage   `json:"usage,omitempty"`
 }
 
-// Models API
+// APIError represents a structured error response from the API.
+type APIError struct {
+	StatusCode int
+	Message    string
+	ErrorType  string
+	Code       string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("API error (status %d): %s", e.StatusCode, e.Message)
+}
+
+// apiErrorBody is used to decode the JSON error response body.
+type apiErrorBody struct {
+	Error struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    string `json:"code"`
+	} `json:"error"`
+}
 
 type ModelsResponse struct {
 	Data []ModelInfo `json:"data"`

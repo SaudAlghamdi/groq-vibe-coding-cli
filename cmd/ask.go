@@ -63,7 +63,7 @@ var askCmd = &cobra.Command{
 					fmt.Print(evt.Content) // Stream to stdout
 				case agent.EventToolCall:
 					fmt.Fprintf(os.Stderr, "%s\n",
-						ui.ToolCallStyle.Render(fmt.Sprintf("🔧 %s", evt.ToolName)))
+						ui.ToolCallStyle.Render(ui.FormatToolCall(evt.ToolName, evt.ToolParams)))
 				case agent.EventError:
 					fmt.Fprintf(os.Stderr, "%s\n",
 						ui.ErrorStyle.Render("Error: "+evt.Content))

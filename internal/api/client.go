@@ -109,7 +109,14 @@ func (c *Client) chatCompletionStreamOnce(ctx context.Context, req ChatCompletio
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return false, false, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(respBody))
+		apiErr := &APIError{StatusCode: resp.StatusCode, Message: string(respBody)}
+		var errBody apiErrorBody
+		if jsonErr := json.Unmarshal(respBody, &errBody); jsonErr == nil && errBody.Error.Message != "" {
+			apiErr.Message = errBody.Error.Message
+			apiErr.ErrorType = errBody.Error.Type
+			apiErr.Code = errBody.Error.Code
+		}
+		return false, false, apiErr
 	}
 
 	scanner := bufio.NewScanner(resp.Body)

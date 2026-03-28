@@ -57,11 +57,13 @@ var rootCmd = &cobra.Command{
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
 func init() {
+	rootCmd.SilenceErrors = true
 	rootCmd.PersistentFlags().StringVar(&cfgModel, "model", "", "Model to use (default: llama-3.3-70b-versatile)")
 	rootCmd.PersistentFlags().BoolVar(&yoloMode, "yolo", false, "Auto-approve all tool operations (use with caution!)")
 }

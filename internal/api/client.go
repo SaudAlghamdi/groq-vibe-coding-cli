@@ -48,31 +48,68 @@ func (c *Client) ChatCompletion(ctx context.Context, req ChatCompletionRequest) 
 type StreamCallback func(content string, toolCalls []ToolCall, done bool, usage *Usage)
 
 // ChatCompletionStream sends a streaming chat completion request.
+// If the stream completes successfully but produces no content and no tool calls,
+// it falls back to a non-streaming request.
 func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionRequest, cb StreamCallback) error {
-	req.Stream = true
-	req.StreamOptions = &StreamOptions{IncludeUsage: true}
-
-	body, err := json.Marshal(req)
+	gotContent, gotToolCalls, err := c.chatCompletionStreamOnce(ctx, req, cb)
 	if err != nil {
-		return fmt.Errorf("marshaling request: %w", err)
+		return err
+	}
+
+	// Fallback: stream returned empty (no content, no tool calls) — some models/providers
+	// occasionally produce valid HTTP 200 SSE streams with no payload. Retrying with the
+	// non-streaming endpoint is more reliable in that case.
+	if !gotContent && !gotToolCalls {
+		resp, err := c.ChatCompletion(ctx, req)
+		if err != nil {
+			return err
+		}
+		if len(resp.Choices) > 0 {
+			msg := resp.Choices[0].Message
+			if msg.Content != "" {
+				cb(msg.Content, nil, false, nil)
+			}
+			if len(msg.ToolCalls) > 0 {
+				cb("", msg.ToolCalls, false, nil)
+			}
+			if resp.Usage != nil {
+				cb("", nil, false, resp.Usage)
+			}
+		}
+		cb("", nil, true, nil)
+	}
+
+	return nil
+}
+
+// chatCompletionStreamOnce performs a single streaming request and returns whether
+// any content or tool calls were received.
+func (c *Client) chatCompletionStreamOnce(ctx context.Context, req ChatCompletionRequest, cb StreamCallback) (gotContent bool, gotToolCalls bool, err error) {
+	streamReq := req
+	streamReq.Stream = true
+	streamReq.StreamOptions = &StreamOptions{IncludeUsage: true}
+
+	body, err := json.Marshal(streamReq)
+	if err != nil {
+		return false, false, fmt.Errorf("marshaling request: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("creating request: %w", err)
+		return false, false, fmt.Errorf("creating request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("sending request: %w", err)
+		return false, false, fmt.Errorf("sending request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(respBody))
+		return false, false, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -87,12 +124,12 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
 			cb("", nil, true, nil)
-			return nil
+			return gotContent, gotToolCalls, nil
 		}
 
 		var chunk StreamChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			return fmt.Errorf("parsing stream chunk: %w", err)
+			return gotContent, gotToolCalls, fmt.Errorf("parsing stream chunk: %w", err)
 		}
 
 		if chunk.Usage != nil {
@@ -113,12 +150,14 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 					toolCalls = append(toolCalls, *tc)
 				}
 				cb("", toolCalls, false, nil)
+				gotToolCalls = true
 			}
 			continue
 		}
 
 		if delta.Content != "" {
 			cb(delta.Content, nil, false, nil)
+			gotContent = true
 		}
 
 		// Accumulate tool call deltas
@@ -149,11 +188,12 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 				toolCalls = append(toolCalls, *tc)
 			}
 			cb("", toolCalls, false, nil)
+			gotToolCalls = true
 			accumulatedToolCalls = make(map[int]*ToolCall)
 		}
 	}
 
-	return scanner.Err()
+	return gotContent, gotToolCalls, scanner.Err()
 }
 
 // ListModels fetches available models from the Groq API.

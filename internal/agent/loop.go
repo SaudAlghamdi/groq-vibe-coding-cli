@@ -93,6 +93,10 @@ func Run(ctx context.Context, opts Options) error {
 
 		// If no tool calls, we're done
 		if len(allToolCalls) == 0 {
+			if fullContent == "" {
+				opts.OnEvent(Event{Type: EventError, Content: "the model returned an empty response with no content and no tool calls"})
+				return fmt.Errorf("the model returned an empty response with no content and no tool calls")
+			}
 			opts.OnEvent(Event{Type: EventDone})
 			return nil
 		}

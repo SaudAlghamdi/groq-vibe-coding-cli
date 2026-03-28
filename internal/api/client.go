@@ -92,7 +92,7 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 
 		var chunk StreamChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			continue
+			return fmt.Errorf("parsing stream chunk: %w", err)
 		}
 
 		if chunk.Usage != nil {
